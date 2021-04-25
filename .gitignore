@@ -1,0 +1,7 @@
+*.exe
+*.dll
+*.xml
+*.iml
+*.cache
+*.editorconfig
+*.json
