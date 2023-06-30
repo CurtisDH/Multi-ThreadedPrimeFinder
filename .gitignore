@@ -1,7 +1,3 @@
-*.exe
-*.dll
-*.xml
-*.iml
-*.cache
-*.editorconfig
-*.json
+obj
+bin
+.idea

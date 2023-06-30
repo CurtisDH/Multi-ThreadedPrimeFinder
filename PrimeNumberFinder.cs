@@ -1,306 +1,106 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Threading;
-using System.Threading.Tasks;
 
-namespace MultiThreadTesting
+namespace Multi_ThreadedPrimeFinder
 {
-    static class PrimeNumberFinder
+    class PrimeNumberFinder
     {
-        private static int _endingNum = 1250000;
-        private static int _total;
+        private readonly int _endNumber;
+        private readonly ConcurrentBag<int> _primeNumbers;
+        private readonly ConcurrentBag<Tuple<int, long>> _taskTimes;
 
-        static void Main(string[] args)
+        public PrimeNumberFinder(int endNumber)
+        {
+            _endNumber = endNumber;
+            _primeNumbers = new ConcurrentBag<int>();
+            _taskTimes = new ConcurrentBag<Tuple<int, long>>();
+        }
+
+        public void FindAndReportPrimes()
         {
             Console.WriteLine($"Processor count: {Environment.ProcessorCount}");
-            EventManager.EventManager.Listen("onThreadComplete",(Action<int>)UpdateTotal);
-            CreateThreads(Environment.ProcessorCount);
-            Console.ReadLine();
-            Console.WriteLine("Total:" + _total);
-        }
 
-        static void UpdateTotal(int amount)
-        {
-            _total += amount;
-        }
+            int range = _endNumber / Environment.ProcessorCount;
+            List<Task> tasks = new List<Task>();
 
-        private static void CreateThreads(int numberOfThreads)
-        {
-            _endingNum /= numberOfThreads;
-            Stopwatch stopwatch = new Stopwatch();
-            stopwatch.Start();
-            for (int i = 1; i <= numberOfThreads; i++)
+            for (int i = 0; i < Environment.ProcessorCount; i++)
             {
-                Console.WriteLine(i);
-                var endNum = _endingNum * i;
-                var threadNumber = i;
-                //Task<int> task = Task<int>.Factory.StartNew(() => FindPrimesTaskInt(endNum - _endingNum, endNum, threadNumber));
-                //_total += task.Result;
-                Thread thread = new Thread(t => FindPrimesTask(endNum - _endingNum, endNum, threadNumber));
-                thread.Start();
+                int start = range * i;
+                int end = (i == Environment.ProcessorCount - 1) ? _endNumber : range * (i + 1);
+
+                tasks.Add(Task.Run(() =>
+                {
+                    FindPrimes(start, end, i);
+                    Console.WriteLine(
+                        $"Task {i} completed on thread {System.Threading.Thread.CurrentThread.ManagedThreadId}");
+                }));
             }
 
-            stopwatch.Stop();
-            Console.WriteLine($"time since all thread creation:{stopwatch.ElapsedMilliseconds}ms");
-            //Console.WriteLine($"time since all thread completion:{stopwatch.ElapsedMilliseconds}ms");
+            Task.WhenAll(tasks).Wait();
+
+            Console.WriteLine($"Total prime numbers found: {_primeNumbers.Count}");
+
+            foreach (var taskTime in _taskTimes.OrderBy(t => t.Item1))
+            {
+                Console.WriteLine($"Task {taskTime.Item1} took {taskTime.Item2}ms");
+            }
         }
 
-        private static void FindPrimesTask(int start, int end,int threadNumber)
+
+        private void FindPrimes(int start, int end, int taskId)
         {
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
-            bool _prime = true;
-            List<int> _foundPrimes = new List<int>();
-            for (int i = start; i < end; i++)
+
+            for (int i = start; i <= end; i++)
             {
-                _prime = true;
-                if (i % 2 == 0)
+                if (IsPrime(i))
                 {
-                    continue;
-                }
-
-                for (int t = 2; t <= i / 2; t++)
-                {
-                    if (i % t == 0)
-                    {
-                        _prime = false;
-                        break;
-                    }
-                }
-
-                if (_prime)
-                {
-                    _prime = false;
-                    _foundPrimes.Add(i);
-                    
-                    //NumFound.Add(i);// need to figure out how to return a value safely
+                    _primeNumbers.Add(i);
                 }
             }
+
             stopwatch.Stop();
-            EventManager.EventManager.RaiseEvent("onThreadComplete",_foundPrimes.Count);
-            Console.WriteLine(
-                $"###THREAD {threadNumber}###Time Elapsed: {stopwatch.ElapsedMilliseconds}ms" +
-                $" Found: {_foundPrimes.Count} Started from: {start} Ended at: {end}");
+            _taskTimes.Add(Tuple.Create(taskId, stopwatch.ElapsedMilliseconds));
         }
-        
-        private static int FindPrimesTaskInt(int start, int end,int threadNumber)
+
+        private bool IsPrime(int number)
         {
-            Stopwatch stopwatch = new Stopwatch();
-            stopwatch.Start();
-            bool _prime = true;
-            List<int> _foundPrimes = new List<int>();
-            for (int i = start; i < end; i++)
+            if (number <= 1)
             {
-                _prime = true;
-                if (i % 2 == 0)
-                {
-                    continue;
-                }
+                return false;
+            }
 
-                for (int t = 2; t <= i / 2; t++)
-                {
-                    if (i % t == 0)
-                    {
-                        _prime = false;
-                        break;
-                    }
-                }
+            if (number == 2)
+            {
+                return true;
+            }
 
-                if (_prime)
+            if (number % 2 == 0)
+            {
+                return false;
+            }
+
+            var boundary = (int)Math.Floor(Math.Sqrt(number));
+
+            for (int i = 3; i <= boundary; i += 2)
+            {
+                if (number % i == 0)
                 {
-                    _prime = false;
-                    _foundPrimes.Add(i);
-                    //NumFound.Add(i);// need to figure out how to return a value safely
+                    return false;
                 }
             }
-            stopwatch.Stop();
-            Console.WriteLine(
-                $"###THREAD {threadNumber}###Time Elapsed: {stopwatch.ElapsedMilliseconds}ms" +
-                $" Found: {_foundPrimes.Count} Started from: {start} Ended at: {end}");
-            return _foundPrimes.Count;
 
+            return true;
         }
-        
+
+        public void ExportPrimesToFile(string fileName)
+        {
+            using StreamWriter file = new StreamWriter(fileName);
+            foreach (var prime in _primeNumbers.OrderBy(p => p))
+            {
+                file.WriteLine(prime);
+            }
+        }
     }
-    
-    namespace EventManager
-{
-    public class EventManager
-    {
-        private static Dictionary<string, dynamic> _eventDictionary = new Dictionary<string, dynamic>();
-
-        #region Listen
-        public static void Listen(string eventName, Action method)
-        {
-            if (_eventDictionary.ContainsKey(eventName))
-            {
-                var eventToAdd = _eventDictionary[eventName];
-                eventToAdd += method;
-                _eventDictionary[eventName] = eventToAdd;
-            }
-            else
-            {
-                _eventDictionary.Add(eventName, method);
-            }
-        }
-        public static void Listen<T>(string eventName, Action<T> method)
-        {
-            if (_eventDictionary.ContainsKey(eventName))
-            {
-                var eventToAdd = _eventDictionary[eventName];
-                eventToAdd += method;
-                _eventDictionary[eventName] = eventToAdd;
-            }
-            else
-            {
-                _eventDictionary.Add(eventName, method);
-            }
-        }
-        public static void Listen<T, Q>(string eventName, Action<T, Q> method)
-        {
-            if (_eventDictionary.ContainsKey(eventName))
-            {
-                var eventToAdd = _eventDictionary[eventName];
-                eventToAdd += method;
-                _eventDictionary[eventName] = eventToAdd;
-            }
-            else
-            {
-                _eventDictionary.Add(eventName, method);
-            }
-        }
-        public static void Listen<T, Q, R>(string eventName, Action<T, Q, R> method)
-        {
-            if (_eventDictionary.ContainsKey(eventName))
-            {
-                var eventToAdd = _eventDictionary[eventName];
-                eventToAdd += method;
-                _eventDictionary[eventName] = eventToAdd;
-            }
-            else
-            {
-                _eventDictionary.Add(eventName, method);
-            }
-        }
-        public static void Listen<T, Q, R, Z>(string eventName, Action<T, Q, R, Z> method)
-        {
-            if (_eventDictionary.ContainsKey(eventName))
-            {
-                var eventToAdd = _eventDictionary[eventName];
-                eventToAdd += method;
-                _eventDictionary[eventName] = eventToAdd;
-            }
-            else
-            {
-                _eventDictionary.Add(eventName, method);
-            }
-        }
-        #endregion
-        #region Raising Events
-
-        public static void RaiseEvent(string eventName)
-        {
-            try
-            {
-                var EventToRaise = _eventDictionary?[eventName] as Action;
-                EventToRaise?.Invoke();
-            }
-            catch
-            {
-                //Debug.Log(e.Data);
-            }
-
-        }
-        public static void RaiseEvent<T>(string eventName, T arg)
-        {
-            try
-            {
-                var EventToRaise = _eventDictionary?[eventName] as Action<T>;
-                EventToRaise?.Invoke(arg);
-            }
-            catch
-            {
-
-            }
-
-        }
-        public static void RaiseEvent<T, Q>(string eventName, T arg, Q arg1)
-        {
-            try
-            {
-                var EventToRaise = _eventDictionary?[eventName] as Action<T, Q>;
-                EventToRaise?.Invoke(arg, arg1);
-            }
-            catch
-            {
-
-            }
-
-        }
-        public static void RaiseEvent<T, Q, R>(string eventName, T arg, Q arg1, R arg2)
-        {
-            try
-            {
-                var EventToRaise = _eventDictionary?[eventName] as Action<T, Q, R>;
-                EventToRaise?.Invoke(arg, arg1, arg2);
-            }
-            catch
-            {
-
-            }
-
-        }
-        public static void RaiseEvent<T, Q, R, Z>(string eventName, T arg, Q arg1, R arg2, Z arg3)
-        {
-            try
-            {
-                var EventToRaise = _eventDictionary?[eventName] as Action<T, Q, R, Z>;
-                EventToRaise?.Invoke(arg, arg1, arg2, arg3);
-            }
-            catch
-            {
-
-            }
-
-        }
-        #endregion
-        #region Unsubscribing methods
-        public static void UnsubscribeEvent(string eventName, Action method)
-        {
-            var eventToUnsubscribe = _eventDictionary[eventName];
-            eventToUnsubscribe -= method;
-            _eventDictionary[eventName] = eventToUnsubscribe;
-        }
-
-        public static void UnsubscribeEvent<T>(string eventName, Action<T> method)
-        {
-            var eventToUnsubscribe = _eventDictionary?[eventName];
-            eventToUnsubscribe -= method;
-            _eventDictionary[eventName] = eventToUnsubscribe;
-        }
-        public static void UnsubscribeEvent<T, Q>(string eventName, Action<T, Q> method)
-        {
-            var eventToUnsubscribe = _eventDictionary[eventName];
-            eventToUnsubscribe -= method;
-            _eventDictionary[eventName] = eventToUnsubscribe;
-        }
-        public static void UnsubscribeEvent<T, Q, R>(string eventName, Action<T, Q, R> method)
-        {
-            var eventToUnsubscribe = _eventDictionary[eventName];
-            eventToUnsubscribe -= method;
-            _eventDictionary[eventName] = eventToUnsubscribe;
-        }
-        public static void UnsubscribeEvent<T, Q, R, Z>(string eventName, Action<T, Q, R, Z> method)
-        {
-            var eventToUnsubscribe = _eventDictionary[eventName];
-            eventToUnsubscribe -= method;
-            _eventDictionary[eventName] = eventToUnsubscribe;
-        }
-        
-        #endregion
-
-    }
-}
-    
 }
