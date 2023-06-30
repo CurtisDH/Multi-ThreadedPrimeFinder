@@ -27,14 +27,16 @@ namespace Multi_ThreadedPrimeFinder
             {
                 int start = range * i;
                 int end = (i == Environment.ProcessorCount - 1) ? _endNumber : range * (i + 1);
+                int taskNum = i;
 
                 tasks.Add(Task.Run(() =>
                 {
-                    FindPrimes(start, end, i);
+                    FindPrimes(start, end, taskNum);
                     Console.WriteLine(
-                        $"Task {i} completed on thread {System.Threading.Thread.CurrentThread.ManagedThreadId}");
+                        $"Task {taskNum} completed on thread {System.Threading.Thread.CurrentThread.ManagedThreadId}");
                 }));
             }
+
 
             Task.WhenAll(tasks).Wait();
 
